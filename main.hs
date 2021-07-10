@@ -8,30 +8,38 @@ import Data.Functor
 import GHC
 import GHC.Paths
 import GhcPlugins
+import HsDumpAst
 import HscMain
+import Panic
 import SimplStg
 import StgCmm
 import StgFVs
 import qualified Stream
+import System.Environment.Blank
 import TidyPgm
 
 main :: IO ()
 main = do
-  let fn = "MyMap.hs"
+  args <- getArgs
   defaultErrorHandler defaultFatalMessager defaultFlushOut $
     runGhc (Just libdir) $
       do
-        do
-          dflags' <- getSessionDynFlags
-          let dflags = updOptLevel 2 $ dflags' {verbosity = 2}
-          void $ setSessionDynFlags dflags
-        target <- guessTarget fn Nothing
+        src <- do
+          dflags0 <- getSessionDynFlags
+          (dflags1, fileish_args, _) <-
+            parseDynamicFlags dflags0 $
+              map noLoc args
+          void $ setSessionDynFlags dflags1
+          case map unLoc fileish_args of
+            [src] -> pure src
+            _ -> throwGhcException $ Panic "Expects 1 input."
+        target <- guessTarget src Nothing
         addTarget target
         mod_graph <- depanal [] False
         mod_summary <-
-          case find ((== fn) . msHsFilePath) (mgModSummaries mod_graph) of
+          case find ((== src) . msHsFilePath) (mgModSummaries mod_graph) of
             Just mod_summary -> pure mod_summary
-            _ -> error "Not found."
+            _ -> throwGhcException $ Panic "Not found."
         let this_mod = ms_mod mod_summary
         parsed_module <- parseModule mod_summary
         typechecked_module <- typecheckModule parsed_module
@@ -42,6 +50,11 @@ main = do
         _ <- liftIO $ do
           simpl_guts <- hscSimplify hsc_env [] mod_guts
           (cg_guts, _) <- tidyProgram hsc_env simpl_guts
+          writeFile "core.0.txt" $
+            showSDoc dflags $
+              showAstData
+                BlankSrcSpan
+                (cg_binds cg_guts)
           let data_tycons = filter isDataTyCon (cg_tycons cg_guts)
           (prepd_binds, _) <-
             corePrepPgm

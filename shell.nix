@@ -9,7 +9,11 @@
 }:
 pkgs.mkShell {
   nativeBuildInputs = [
-    (pkgs.haskell.packages."${ghc}".ghcWithPackages
-      (ps: with ps; [ ghc-paths haskell-language-server ]))
+    (pkgs.haskell.packages."${ghc}".ghcWithPackages (ps:
+      with ps; [
+        ghc-paths
+        haskell-language-server
+        th-desugar
+      ]))
   ];
 }
